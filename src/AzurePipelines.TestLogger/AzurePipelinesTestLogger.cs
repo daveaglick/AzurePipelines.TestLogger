@@ -136,6 +136,7 @@ namespace AzurePipelines.TestLogger
         private void TestResultHandler(object sender, TestResultEventArgs e) =>
             _queue.Enqueue(new VstpTestResult(e.Result));
 
-        private void TestRunCompleteHandler(object sender, TestRunCompleteEventArgs e) => _queue.Flush();
+        private void TestRunCompleteHandler(object sender, TestRunCompleteEventArgs e) =>
+            _queue.Flush(new VstpTestRunComplete(e.AttachmentSets));
     }
 }

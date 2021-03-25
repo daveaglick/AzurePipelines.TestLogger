@@ -97,6 +97,11 @@ namespace AzurePipelines.TestLogger
             await UploadTestResultFiles(testRunId, testCaseTestResults, testResultsByParent, cancellationToken);
         }
 
+        public async Task UpdateTestResults(int testRunId, VstpTestRunComplete testRunComplete, CancellationToken cancellationToken)
+        {
+            await UploadTestResultFiles(testRunId, null, testRunComplete.Attachments, cancellationToken);
+        }
+
         public async Task<int[]> AddTestCases(int testRunId, string[] testCaseNames, DateTime startedDate, string source, CancellationToken cancellationToken)
         {
             string requestBody = "[ " + string.Join(", ", testCaseNames.Select(x =>
@@ -285,25 +290,39 @@ namespace AzurePipelines.TestLogger
 
                 foreach (ITestResult testResult in testResultByParent.Select(x => x))
                 {
-                    if (testResult.Attachments.Count > 0)
-                    {
-                        Console.WriteLine($"Attaching files to test run {testRunId} and test result {parent.Id}...");
-                    }
+                    await UploadTestResultFiles(testRunId, parent.Id, testResult.Attachments, cancellationToken);
+                }
+            }
+        }
 
-                    foreach (AttachmentSet attachmentSet in testResult.Attachments)
-                    {
-                        if (attachmentSet.Attachments.Count > 0)
-                        {
-                            Console.WriteLine($"Attaching files in set {attachmentSet.DisplayName} {attachmentSet.Uri}...");
-                        }
+        private async Task UploadTestResultFiles(int testRunId, int? testResultId, ICollection<AttachmentSet> attachmentSets, CancellationToken cancellationToken)
+        {
+            if (attachmentSets.Count > 0)
+            {
+                string message = $"Attaching files to test run {testRunId}";
 
-                        foreach (UriDataAttachment attachment in attachmentSet.Attachments)
-                        {
-                            Console.WriteLine($"Attaching file {attachment.Description} {attachment.Uri.LocalPath}...");
+                if (testResultId != null)
+                {
+                    message += $" and test result {testResultId}";
+                }
 
-                            await AttachFile(testRunId, parent.Id, attachment.Uri.LocalPath, attachment.Description, cancellationToken);
-                        }
-                    }
+                message += "...";
+
+                Console.WriteLine(message);
+            }
+
+            foreach (AttachmentSet attachmentSet in attachmentSets)
+            {
+                if (attachmentSet.Attachments.Count > 0)
+                {
+                    Console.WriteLine($"Attaching files in set {attachmentSet.DisplayName} {attachmentSet.Uri}...");
+                }
+
+                foreach (UriDataAttachment attachment in attachmentSet.Attachments)
+                {
+                    Console.WriteLine($"Attaching file {attachment.Description} {attachment.Uri.LocalPath}...");
+
+                    await AttachFile(testRunId, testResultId, attachment.Uri.LocalPath, attachment.Description, cancellationToken);
                 }
             }
         }
@@ -314,29 +333,46 @@ namespace AzurePipelines.TestLogger
             await AttachFile(testRunId, testResultId, contentAsBytes, fileName, comment, cancellationToken);
         }
 
-        private async Task AttachFile(int testRunId, int testResultId, string filePath, string comment, CancellationToken cancellationToken)
+        private async Task AttachFile(int testRunId, int? testResultId, string filePath, string comment, CancellationToken cancellationToken)
         {
             byte[] contentAsBytes = File.ReadAllBytes(filePath);
             string fileName = Path.GetFileName(filePath);
             await AttachFile(testRunId, testResultId, contentAsBytes, fileName, comment, cancellationToken);
         }
 
-        private async Task AttachFile(int testRunId, int testResultId, byte[] fileContents, string fileName, string comment, CancellationToken cancellationToken)
+        private async Task AttachFile(int testRunId, int? testResultId, byte[] fileContents, string fileName, string comment, CancellationToken cancellationToken)
         {
-            // https://docs.microsoft.com/en-us/rest/api/azure/devops/test/attachments/create%20test%20result%20attachment
-            // https://docs.microsoft.com/en-us/azure/devops/integrate/previous-apis/test/attachments?view=tfs-2015#attach-a-file-to-a-test-result
             string contentAsBase64 = Convert.ToBase64String(fileContents);
+
+            string attachmentType = "GeneralAttachment";
+
+            if (fileName.EndsWith(".coverage", StringComparison.OrdinalIgnoreCase))
+            {
+                attachmentType = "CodeCoverage";
+            }
 
             Dictionary<string, object> props = new Dictionary<string, object>
             {
                 { "stream", contentAsBase64 },
                 { "fileName", fileName },
                 { "comment", comment },
-                { "attachmentType", "GeneralAttachment" }
+                { "attachmentType", attachmentType }
             };
 
             string requestBody = props.ToJson();
-            await SendAsync(new HttpMethod("POST"), $"/{testRunId}/results/{testResultId}/attachments", requestBody, cancellationToken, "2.0-preview").ConfigureAwait(false);
+
+            if (testResultId == null)
+            {
+                // https://docs.microsoft.com/en-us/rest/api/azure/devops/test/attachments/create%20test%20run%20attachment
+                // https://docs.microsoft.com/en-us/previous-versions/azure/devops/integrate/previous-apis/test/attachments?view=tfs-2015#attach-a-file-to-a-test-run
+                await SendAsync(new HttpMethod("POST"), $"/{testRunId}/attachments", requestBody, cancellationToken, "2.0-preview").ConfigureAwait(false);
+            }
+            else
+            {
+                // https://docs.microsoft.com/en-us/rest/api/azure/devops/test/attachments/create%20test%20result%20attachment
+                // https://docs.microsoft.com/en-us/azure/devops/integrate/previous-apis/test/attachments?view=tfs-2015#attach-a-file-to-a-test-result
+                await SendAsync(new HttpMethod("POST"), $"/{testRunId}/results/{testResultId}/attachments", requestBody, cancellationToken, "2.0-preview").ConfigureAwait(false);
+            }
         }
     }
 }

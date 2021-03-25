@@ -38,7 +38,7 @@ namespace AzurePipelines.TestLogger
 
         public void Enqueue(ITestResult testResult) => _queue.Add(testResult);
 
-        public void Flush()
+        public void Flush(VstpTestRunComplete testRunComplete)
         {
             // Cancel any idle consumers and let them return
             _queue.Cancel();
@@ -49,7 +49,7 @@ namespace AzurePipelines.TestLogger
                 _consumeTask.Wait(TimeSpan.FromSeconds(60));
 
                 // Update the run and parents to a completed state
-                SendTestsCompleted(_consumeTaskCancellationSource.Token).Wait(TimeSpan.FromSeconds(60));
+                SendTestsCompleted(testRunComplete, _consumeTaskCancellationSource.Token).Wait(TimeSpan.FromSeconds(60));
 
                 // Cancel any active HTTP requests if still hasn't finished flushing
                 _consumeTaskCancellationSource.Cancel();
@@ -201,13 +201,15 @@ namespace AzurePipelines.TestLogger
             return _apiClient.UpdateTestResults(RunId, Parents, testResultsByParent, cancellationToken);
         }
 
-        private async Task SendTestsCompleted(CancellationToken cancellationToken)
+        private async Task SendTestsCompleted(VstpTestRunComplete testRunComplete, CancellationToken cancellationToken)
         {
             DateTime completedDate = DateTime.UtcNow;
 
             // Mark all parents as completed (but only if we actually created a parent)
             if (RunId != 0)
             {
+                await _apiClient.UpdateTestResults(RunId, testRunComplete, cancellationToken);
+
                 if (Parents.Values.Count > 0)
                 {
                     await _apiClient.MarkTestCasesCompleted(RunId, Parents.Values, completedDate, cancellationToken).ConfigureAwait(false);

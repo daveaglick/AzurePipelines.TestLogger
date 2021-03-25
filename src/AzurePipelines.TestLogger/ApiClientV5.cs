@@ -37,10 +37,9 @@ namespace AzurePipelines.TestLogger
                 TestResultParent parent = testCaseTestResults[x.Key];
                 string subResults = "[ " + string.Join(", ", x.Select(y => GetTestResultProperties(y).ToJson())) + " ]";
                 string failedOutcome = x.Any(t => t.Outcome == TestOutcome.Failed) ? "\"outcome\": \"Failed\"," : null;
-                parent.Duration += Convert.ToInt64(x.Sum(t => t.Duration.TotalMilliseconds));
+
                 return $@"{{
                     ""id"": {parent.Id},
-                    ""durationInMs"": {parent.Duration.ToString(CultureInfo.InvariantCulture)},
                     ""completedDate"": ""{completedDate.ToString(_dateFormatString)}"",
                     {failedOutcome}
                     ""subResults"": {subResults}
